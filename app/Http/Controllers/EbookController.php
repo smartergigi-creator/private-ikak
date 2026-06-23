@@ -1,0 +1,659 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
+use App\Models\Ebook;
+use App\Models\EbookIssueReport;
+use App\Models\Category;
+use App\Support\WatermarkedPdfDownloader;
+use App\Models\User;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+
+class EbookController extends Controller
+{
+    /* ======================================================
+       1. LIST ALL EBOOKS
+    ====================================================== */
+    public function index()
+    {
+        $user = auth()->user();
+
+        $ebooks = Ebook::with([
+                'uploader',
+                'sharedUser',
+                'category',
+                'subcategory',
+                'relatedSubcategory'
+            ])
+            ->latest()
+            ->paginate(10);
+
+        $groupedEbooks = $ebooks->getCollection()->groupBy('title');
+
+        $categories = Category::whereNull('parent_id')
+            ->orderBy('name')
+            ->get();
+
+        return view('ebook.index', compact(
+            'ebooks',
+            'groupedEbooks',
+            'user',
+            'categories'
+        ));
+    }
+
+    /* ======================================================
+       2. UPLOAD FILE(S)
+    ====================================================== */
+public function store(Request $request)
+{
+    try {
+
+        // KRP Session Role Check
+        $role = strtolower((string) session('user_role', 'guest'));
+
+        $sessionRoles = collect(session('ikak_roles', []))
+            ->map(fn($role) => strtolower((string) $role))
+            ->all();
+
+        $isOperator = $role === 'operator'
+            || in_array('operator', $sessionRoles, true);
+
+        if (!$isOperator) {
+            return response()->json([
+                'status' => false,
+                'message' => 'You are not allowed to upload'
+            ], 403);
+        }
+
+        $request->validate([
+            'ebook_name' => 'required|string|max:255',
+            'author_name' => 'required|string|max:255',
+            'year' => 'nullable|integer|digits:4|min:1900|max:2100',
+            'category_id' => ['nullable', Rule::exists('categories', 'id')->where('is_deleted', 0)],
+            'subcategory_id' => ['nullable', Rule::exists('categories', 'id')->where('is_deleted', 0)],
+            'related_subcategory_id' => ['nullable', Rule::exists('categories', 'id')->where('is_deleted', 0)],
+            'pdfs' => 'required|array|min:1',
+            'pdfs.*' => 'required|file|max:204800',
+        ]);
+
+        $files = $request->file('pdfs');
+        if (!is_array($files)) {
+            $files = [$files];
+        }
+
+        $uploaded = 0;
+        $created = 0;
+
+        $manualTitle = $request->ebook_name;
+        $authorName = $request->author_name;
+        $publishYear = $request->filled('year') ? (int) $request->year : null;
+
+        foreach ($files as $file) {
+
+            if (!$file->isValid()) {
+                continue;
+            }
+
+            $clientOriginalName = $file->getClientOriginalName();
+            $originalName = pathinfo($clientOriginalName, PATHINFO_FILENAME);
+            $originalExtension = strtolower($file->getClientOriginalExtension() ?: pathinfo($clientOriginalName, PATHINFO_EXTENSION));
+
+            $isPdf = $originalExtension === 'pdf'
+                || strtolower((string) $file->getMimeType()) === 'application/pdf';
+
+            $safeTitle = Str::title(str_replace('_', ' ', $originalName));
+
+            $folder = Str::slug($originalName)
+                . '_' . time()
+                . '_' . Str::random(4);
+
+            $storageRoot = $isPdf ? 'ebooks' : 'media';
+
+            if (env('FILE_ROOT') === 'public_html') {
+                $basePath = dirname(base_path()) . '/public_html/' . $storageRoot . '/' . $folder;
+            } else {
+                $basePath = public_path($storageRoot . '/' . $folder);
+            }
+
+            if (!File::exists($basePath)) {
+                File::makeDirectory($basePath, 0755, true);
+            }
+
+            $baseFileName = Str::slug($originalName);
+            if ($baseFileName === '') {
+                $baseFileName = 'file';
+            }
+
+            $storedExtension = $originalExtension !== '' ? $originalExtension : ($isPdf ? 'pdf' : 'bin');
+            $storedFileName = $baseFileName . '.' . $storedExtension;
+
+            $file->move($basePath, $storedFileName);
+
+            $uploaded++;
+
+            $baseSlug = Str::slug($manualTitle);
+            $slug = $baseSlug;
+            $counter = 1;
+
+            while (Ebook::where('slug', $slug)->exists()) {
+                $slug = $baseSlug . '-' . $counter++;
+            }
+
+            Ebook::create([
+                'title' => $manualTitle,
+                'year' => $publishYear,
+                'author_name' => $authorName,
+                'slug' => $slug,
+                'file_title' => $safeTitle,
+                'pdf_path' => "$storageRoot/$folder/$storedFileName",
+                'folder_path' => $folder,
+                'page_count' => 0,
+                'category_id' => $request->category_id,
+                'subcategory_id' => $request->subcategory_id,
+                'related_subcategory_id' => $request->related_subcategory_id,
+                'user_id' => null,
+                'access_role' => $request->access_role,
+                'uploaded_by' => session('user_name')
+                    ?? session('username')
+                    ?? session('full_name')
+                    ?? 'operator',
+            ]);
+
+            if ($isPdf) {
+                $created++;
+            }
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => $uploaded . ' file(s) uploaded successfully. ' . $created . ' PDF file(s) converted to ebook(s).'
+        ]);
+
+    } catch (ValidationException $e) {
+
+        $message = collect($e->errors())
+            ->flatten()
+            ->first() ?: 'Validation failed';
+
+        return response()->json([
+            'status' => false,
+            'message' => $message,
+            'errors' => $e->errors(),
+        ], 422);
+
+    } catch (\Throwable $e) {
+
+        return response()->json([
+            'status' => false,
+            'message' => 'Upload failed',
+            'error' => $e->getMessage()
+        ], 500);
+    }
+}
+
+    /* ======================================================
+       3. VIEW FLIPBOOK (Slug Based)
+    ====================================================== */
+    public function view($slug)
+    {
+        $ebook = Ebook::where('slug', $slug)->firstOrFail();
+            // =====================================================
+    // Role-based access control
+    // =====================================================
+
+    $role = strtolower((string) session('user_role', 'guest'));
+
+    $sessionRoles = collect(session('ikak_roles', []))
+        ->map(fn ($r) => strtolower((string) $r))
+        ->all();
+
+    $isLoggedIn = session()->has('logged_in');
+
+    $isMember = $role === 'member'
+        || in_array('member', $sessionRoles, true);
+
+    $isBranchChief = in_array($role, ['branch chief', 'bc'], true)
+        || in_array('branch chief', $sessionRoles, true)
+        || in_array('bc', $sessionRoles, true);
+
+    $isOperator = $role === 'operator'
+        || in_array('operator', $sessionRoles, true);
+
+    // Guest user
+    if (!$isLoggedIn) {
+
+        if (in_array($ebook->access_role, ['member', 'bc', 'operator'])) {
+
+            return redirect()
+                ->route('login')
+                ->with('error', 'Please login to access this content.');
+        }
+    }
+
+    // Member cannot open BC or Operator files
+    if ($isMember && !$isBranchChief && !$isOperator) {
+
+        if (in_array($ebook->access_role, ['bc', 'operator'])) {
+            abort(403, 'Access denied');
+        }
+    }
+
+    // BC cannot open Operator files
+    if ($isBranchChief && !$isOperator) {
+
+        if ($ebook->access_role === 'operator') {
+            abort(403, 'Access denied');
+        }
+    }
+        $reportRecipients = collect();
+        $canShareFile = false;
+
+        if (auth()->check()) {
+            $user = auth()->user();
+            $canShareFile = $user->hasUnlimitedPdfAccess() || (bool) $user->can_share;
+            $reportRecipients = User::query()
+                ->where('status', 'active')
+                ->whereKeyNot(auth()->id())
+                ->orderBy('name')
+                ->get(['id', 'name', 'email']);
+        }
+
+        $pdfPath = $this->resolvePdfPath($ebook->pdf_path);
+
+        if (!is_file($pdfPath)) {
+            abort(404, 'File not found');
+        }
+
+        $downloadUrl = route('ebook.download', $ebook->slug);
+
+        return view('ebook.flipbook', compact('ebook', 'reportRecipients', 'downloadUrl', 'canShareFile'));
+    }
+
+    // public function downloadWatermarked($slug, WatermarkedPdfDownloader $downloader)
+    // {
+    //     $ebook = Ebook::where('slug', $slug)->firstOrFail();
+    //     $pdfPath = $this->resolvePdfPath($ebook->pdf_path);
+
+    //     abort_unless(is_file($pdfPath), 404, 'PDF file not found');
+
+    //     $payload = $downloader->build(
+    //         $pdfPath,
+    //         $this->downloadFileName($ebook),
+    //         $this->resolveWatermarkLogoPath(),
+    //         'UNITI'
+    //     );
+
+    //     return response($payload['content'], 200, [
+    //         'Content-Type' => 'application/pdf',
+    //         'Content-Disposition' => 'attachment; filename="' . $payload['name'] . '"',
+    //         'Cache-Control' => 'no-store, no-cache, must-revalidate',
+    //     ]);
+    // }
+function Rotate($angle, $x = -1, $y = -1)
+{
+    if ($x == -1)
+        $x = $this->x;
+    if ($y == -1)
+        $y = $this->y;
+
+    if ($this->angle != 0)
+        $this->_out('Q');
+
+    $this->angle = $angle;
+
+    if ($angle != 0) {
+        $angle *= M_PI / 180;
+        $c = cos($angle);
+        $s = sin($angle);
+        $cx = $x * $this->k;
+        $cy = ($this->h - $y) * $this->k;
+
+        $this->_out(sprintf(
+            'q %.5F %.5F %.5F %.5F %.5F %.5F cm',
+            $c, $s, -$s, $c, $cx, $cy
+        ));
+    }
+}
+
+public function downloadOLD($slug, WatermarkedPdfDownloaderOLD $downloader)
+{
+    // ✅ REMOVE share_enabled condition
+    $ebook = Ebook::where('slug', $slug)->firstOrFail();
+
+    $pdfPath = $this->resolvePdfPath($ebook->pdf_path);
+
+    if (!is_file($pdfPath)) {
+        abort(404, 'File not found');
+    }
+
+    if (!$ebook->isPdf()) {
+        return response()->download(
+            $pdfPath,
+            $this->downloadFileName($ebook)
+        );
+    }
+
+    try {
+        $payload = $downloader->build(
+            $pdfPath,
+            $this->downloadFileName($ebook),
+            $this->resolveWatermarkLogoPath(),
+            'UNITI'
+        );
+
+        return response($payload['content'], 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="' . $payload['name'] . '"',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate',
+        ]);
+
+    } catch (\Throwable $e) {
+
+        return response()->download(
+            $pdfPath,
+            $this->downloadFileName($ebook)
+        );
+    }
+}
+public function download($slug, WatermarkedPdfDownloader $downloader)
+{
+    $ebook = Ebook::where('slug', $slug)->firstOrFail();
+
+    /*
+    |--------------------------------------------------------------------------
+    | Role-based access control
+    |--------------------------------------------------------------------------
+    */
+    $role = strtolower((string) session('user_role', 'guest'));
+
+    $sessionRoles = collect(session('ikak_roles', []))
+        ->map(fn ($r) => strtolower((string) $r))
+        ->all();
+
+    $isLoggedIn = session()->has('logged_in');
+
+    $isMember = $role === 'member'
+        || in_array('member', $sessionRoles, true);
+
+    $isBranchChief = in_array($role, ['branch chief', 'bc'], true)
+        || in_array('branch chief', $sessionRoles, true)
+        || in_array('bc', $sessionRoles, true);
+
+    $isOperator = $role === 'operator'
+        || in_array('operator', $sessionRoles, true);
+
+    // Guest users
+    if (!$isLoggedIn) {
+
+        if (in_array($ebook->access_role, ['member', 'bc', 'operator'])) {
+
+            return redirect()
+                ->route('login')
+                ->with('error', 'Please login to access this file.');
+        }
+    }
+
+    // Members cannot access BC or Operator files
+    if ($isMember && !$isBranchChief && !$isOperator) {
+
+        if (in_array($ebook->access_role, ['bc', 'operator'])) {
+            abort(403, 'Access denied');
+        }
+    }
+
+    // Branch Chiefs cannot access Operator files
+    if ($isBranchChief && !$isOperator) {
+
+        if ($ebook->access_role === 'operator') {
+            abort(403, 'Access denied');
+        }
+    }
+
+    $pdfPath = $this->resolvePdfPath($ebook->pdf_path);
+
+    if (!is_file($pdfPath)) {
+        abort(404, 'File not found');
+    }
+
+    if (!$ebook->isPdf()) {
+        return response()->download(
+            $pdfPath,
+            $this->downloadFileName($ebook)
+        );
+    }
+
+    try {
+
+        $payload = $downloader->build(
+            $pdfPath,
+            $this->downloadFileName($ebook),
+            $this->resolveWatermarkLogoPath(),
+            'UNITI'
+        );
+
+        return response($payload['content'], 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="' . $payload['name'] . '"',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate',
+        ]);
+
+    } catch (\Throwable $e) {
+
+        return response()->download(
+            $pdfPath,
+            $this->downloadFileName($ebook)
+        );
+    }
+}
+    public function reportIssue(Request $request, $id)
+    {
+        $user = auth()->user();
+
+        if (!$user) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Unauthorized',
+            ], 401);
+        }
+
+        $ebook = Ebook::find($id);
+        if (!$ebook) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Ebook not found.',
+            ], 404);
+        }
+
+        $validated = $request->validate([
+            'recipient_id' => ['required', 'integer', Rule::exists('users', 'id')->where('status', 'active')],
+            'page' => ['required', 'integer', 'min:1'],
+            'description' => ['required', 'string', 'max:2000'],
+        ]);
+
+        if ((int) $validated['recipient_id'] === (int) $user->id) {
+            return response()->json([
+                'status' => false,
+                'message' => 'You cannot assign the report to yourself.',
+            ], 422);
+        }
+
+        EbookIssueReport::create([
+            'ebook_id' => $ebook->id,
+            'reported_by' => $user->id,
+            'recipient_id' => $validated['recipient_id'],
+            'page' => $validated['page'],
+            'description' => trim($validated['description']),
+        ]);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Issue report saved successfully.',
+        ]);
+    }
+
+    /* ======================================================
+       4. DELETE EBOOK
+    ====================================================== */
+    public function delete($id)
+    {
+        try {
+
+            $ebook = Ebook::findOrFail($id);
+
+            if (Schema::hasTable('ebook_pages')) {
+                DB::table('ebook_pages')
+                    ->where('ebook_id', $ebook->id)
+                    ->delete();
+            }
+
+            if (Schema::hasTable('ebook_shares')) {
+                DB::table('ebook_shares')
+                    ->where('ebook_id', $ebook->id)
+                    ->delete();
+            }
+
+            $folderPath = $this->resolveManagedPath("ebooks/{$ebook->folder_path}");
+
+            if (File::exists($folderPath)) {
+                File::deleteDirectory($folderPath);
+            }
+
+            $ebook->delete();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Ebook deleted successfully'
+            ]);
+
+        } catch (\Throwable $e) {
+
+            return response()->json([
+                'status' => false,
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /* ======================================================
+       5. API VIEW
+    ====================================================== */
+    public function viewApi($id)
+    {
+        return Ebook::findOrFail($id);
+    }
+
+ protected function resolvePdfPath(string $pdfPath): string
+    {
+        $relativePath = ltrim($pdfPath, '/\\');
+
+        // ✅ LOCAL (public folder)
+        $localPath = public_path($relativePath);
+
+        if (is_file($localPath)) {
+            return $localPath;
+        }
+
+        // ✅ LIVE (public_html)
+        $livePath = dirname(base_path()) . DIRECTORY_SEPARATOR . 'public_html' . DIRECTORY_SEPARATOR . $relativePath;
+
+        if (is_file($livePath)) {
+            return $livePath;
+        }
+
+        // ✅ fallback (old logic)
+        foreach ($this->fileRootCandidates() as $rootPath) {
+            $candidate = $rootPath . DIRECTORY_SEPARATOR . $relativePath;
+
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        abort(404, 'File not found: ' . $relativePath);
+    }
+
+    protected function downloadFileName(Ebook $ebook): string
+    {
+        $name = $ebook->file_title
+            ?: $ebook->title
+            ?: pathinfo($ebook->pdf_path, PATHINFO_FILENAME)
+            ?: 'file';
+        $extension = $ebook->fileExtension() ?: 'bin';
+
+        $name = trim(preg_replace('/[\\\\\\/:*?"<>|]+/', ' ', $name) ?? '');
+        $name = preg_replace('/\s+/', ' ', $name) ?? $name;
+
+        return ($name !== '' ? $name : 'file') . '.' . $extension;
+    }
+
+    protected function resolveWatermarkLogoPath(): ?string
+    {
+        $candidates = [
+            dirname(base_path()) . DIRECTORY_SEPARATOR . 'public_html' . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR . 'logo.png',
+            public_path('images/logo.png'),
+            base_path('public/images/logo.png'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    protected function resolveManagedPath(string $relativePath): string
+    {
+        $relativePath = ltrim($relativePath, '/\\');
+
+        foreach ($this->fileRootCandidates() as $rootPath) {
+            if (is_dir($rootPath)) {
+                return $rootPath . DIRECTORY_SEPARATOR . $relativePath;
+            }
+        }
+
+        return $this->fileRootCandidates()[0] . DIRECTORY_SEPARATOR . $relativePath;
+    }
+
+    protected function fileRootCandidates(): array
+    {
+        $rootFolder = trim((string) config('app.file_root', 'public'));
+
+        if ($rootFolder === '') {
+            $rootFolder = 'public';
+        }
+
+        $normalizedRoot = trim($rootFolder, '/\\');
+        $candidates = [];
+
+        if ($this->isAbsolutePath($rootFolder)) {
+            $candidates[] = rtrim($rootFolder, '/\\');
+        } else {
+            if ($normalizedRoot === 'public') {
+                $candidates[] = dirname(base_path()) . DIRECTORY_SEPARATOR . 'public_html';
+                $candidates[] = public_path();
+            }
+
+            $candidates[] = base_path($normalizedRoot);
+            $candidates[] = dirname(base_path()) . DIRECTORY_SEPARATOR . $normalizedRoot;
+        }
+
+        return array_values(array_unique(array_map(
+            fn ($path) => rtrim($path, '/\\'),
+            array_filter($candidates)
+        )));
+    }
+
+    protected function isAbsolutePath(string $path): bool
+    {
+        return preg_match('/^(?:[A-Za-z]:[\\\\\\/]|[\\\\\\/]{2}|\\/)/', $path) === 1;
+    }
+}

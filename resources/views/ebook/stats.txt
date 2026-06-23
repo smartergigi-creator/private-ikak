@@ -1,0 +1,116 @@
+add_shortcode('ikak_stats', function() {
+    ob_start();
+    
+    // Reuse the same cache key as the dojo directory
+    $cache_key = 'ikak_dojos_all';
+    $dojos = get_transient($cache_key);
+    if ($dojos === false) {
+        $all_dojos = [];
+        $page = 1;
+        $page_size = 100;
+        do {
+            $url = add_query_arg([
+                'page'     => $page,
+                'pageSize' => $page_size,
+            ], 'https://api-members.ikak.net/api/dojos');
+            $response = wp_remote_get($url, [
+                'timeout' => 15,
+                'headers' => ['Accept' => 'application/json']
+            ]);
+            if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) break;
+            $body = wp_remote_retrieve_body($response);
+            $data = json_decode($body, true);
+            if (empty($data['result']) || $data['result'] !== true || empty($data['data'])) break;
+            foreach ($data['data'] as $dojo) {
+                $all_dojos[] = $dojo;
+            }
+            if (empty($data['hasNext'])) break;
+            $page++;
+        } while ($page <= 10);
+        $dojos = $all_dojos;
+        set_transient($cache_key, $dojos, 12 * HOUR_IN_SECONDS);
+    }
+    $total_dojos = count($dojos);
+    $unique_countries = count(array_unique(array_column($dojos, 'dojo_country')));
+    ?>
+<style>
+@font-face {
+    font-family: 'Singapore Sling';
+    src: url('https://ikak.net/wp-content/uploads/2026/05/SingaporeSling-ez7O.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+}
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap');
+
+.ikak-stats-section {
+    font-family: 'Poppins', sans-serif;
+}
+
+.ikak-title {
+    font-family: 'Singapore Sling', sans-serif !important;
+    font-size: 32px;
+    font-weight: normal;
+    letter-spacing: 2px;
+    color: #111;
+    text-align: center;
+    margin-bottom: 12px;
+    line-height: 1.2;
+}
+
+.ikak-subtitle {
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    font-weight: 400;
+    color: #666;
+    text-align: center;
+    max-width: 750px;
+    margin: 0 auto 40px;
+    line-height: 1.7;
+}
+
+.stat-box h3 {
+    font-family: 'Poppins', sans-serif;
+    font-size: 34px;
+    font-weight: 700;
+    color: #e53935;
+    margin-bottom: 8px;
+}
+
+.stat-box p {
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    color: #444;
+    letter-spacing: 0.3px;
+}
+</style>
+    <section class="ikak-stats-section">
+        <h2 class="ikak-title">KyokushinRyu Presence</h2>
+        <p class="ikak-subtitle">
+            IKAK has established branches across the world, bringing authentic Kyokushin Karate to communities on every continent
+        </p>
+        <div class="ikak-stats">
+            <a href="/dojo/?tab=countries" class="stat-box" style="text-decoration: none; display: block;">
+                <h3><?php echo $unique_countries; ?></h3>
+                <p>Countries</p>
+            </a>
+            <a href="/dojo/?tab=dojos" class="stat-box" style="text-decoration: none; display: block;">
+                <h3><?php echo $total_dojos; ?></h3>
+                <p>Dojos Worldwide</p>
+            </a>
+            <div class="stat-box">
+                <a href="https://members.ikak.net/Account/Login?ReturnUrl=%2F" style="text-decoration:none; display: block;">
+                    <h3>50K+</h3>
+                    <p>Active Members</p>
+                </a>
+            </div>
+            <div class="stat-box">
+                <h3>2018</h3>
+                <p>Established</p>
+            </div>
+        </div>
+    </section>
+    <?php
+    return ob_get_clean();
+});

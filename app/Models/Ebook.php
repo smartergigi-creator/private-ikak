@@ -1,0 +1,104 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use App\Models\EbookPermission;
+
+class Ebook extends Model
+{
+    // ✅ Correct table name
+    protected $table = 'ebook';
+
+    protected $fillable = [
+        'title',
+        'year',
+        'author_name',
+        'file_title',
+        'pdf_path',
+        'folder_path',
+        'page_count',
+        'category_id',
+        'subcategory_id',
+        'related_subcategory_id',
+        'uploaded_by',
+        'user_id',
+        'share_token',
+        'share_expires_at',
+        'share_enabled',
+        'shared_by',
+        'max_views',
+        'current_views',
+        'slug',
+        'access_role',
+    ];
+
+    public function fileExtension(): string
+    {
+        return strtolower((string) pathinfo((string) $this->pdf_path, PATHINFO_EXTENSION));
+    }
+
+    public function isPdf(): bool
+    {
+        return $this->fileExtension() === 'pdf';
+    }
+
+    public function isImage(): bool
+    {
+        return in_array($this->fileExtension(), ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif'], true);
+    }
+
+    public function isVideo(): bool
+    {
+        return in_array($this->fileExtension(), ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'], true);
+    }
+
+
+    public function pages()
+    {
+        return $this->hasMany(EbookPage::class);
+    }
+
+    public function coverPage()
+    {
+        return $this->hasOne(EbookPage::class)->oldestOfMany('page_no');
+    }
+    // Upload pannina user
+    public function uploader()
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function uploadedByUser()
+    {
+        return $this->belongsTo(User::class, 'uploaded_by');
+    }
+
+    // Share pannina user
+    public function sharedUser()
+    {
+        return $this->belongsTo(User::class, 'shared_by');
+    }
+
+    public function category()
+    {
+        return $this->belongsTo(Category::class, 'category_id');
+    }
+
+    public function subcategory()
+    {
+        return $this->belongsTo(Category::class, 'subcategory_id');
+    }
+
+    public function relatedSubcategory()
+    {
+        return $this->belongsTo(Category::class, 'related_subcategory_id');
+    }
+   
+
+    public function permissions()
+    {
+        return $this->hasMany(EbookPermission::class, 'ebook_id');
+    }
+}
+
