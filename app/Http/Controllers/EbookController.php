@@ -115,11 +115,11 @@ public function store(Request $request)
                 . '_' . time()
                 . '_' . Str::random(4);
 
-           $storageRoot = $isPdf ? 'ebooks' : 'media';
+          $storageRoot = $isPdf ? 'ebooks' : 'media';
 
 if ($isPdf) {
 
-    $uploadRoot = env('EBOOK_UPLOAD_PATH');
+    $uploadRoot = config('filesystems.ebook_upload_path');
 
     if (empty($uploadRoot)) {
         throw new \Exception('EBOOK_UPLOAD_PATH is not configured.');
