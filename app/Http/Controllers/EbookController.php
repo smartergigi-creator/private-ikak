@@ -115,13 +115,27 @@ public function store(Request $request)
                 . '_' . time()
                 . '_' . Str::random(4);
 
-            $storageRoot = $isPdf ? 'ebooks' : 'media';
+           $storageRoot = $isPdf ? 'ebooks' : 'media';
 
-            if (env('FILE_ROOT') === 'public_html') {
-                $basePath = dirname(base_path()) . '/public_html/' . $storageRoot . '/' . $folder;
-            } else {
-                $basePath = public_path($storageRoot . '/' . $folder);
-            }
+if ($isPdf) {
+
+    $uploadRoot = env('EBOOK_UPLOAD_PATH');
+
+    if (empty($uploadRoot)) {
+        throw new \Exception('EBOOK_UPLOAD_PATH is not configured.');
+    }
+
+    $basePath = rtrim($uploadRoot, '/') . '/' . $folder;
+
+} else {
+
+    if (env('FILE_ROOT') === 'public_html') {
+        $basePath = dirname(base_path()) . '/public_html/media/' . $folder;
+    } else {
+        $basePath = public_path('media/' . $folder);
+    }
+
+}
 
             if (!File::exists($basePath)) {
                 File::makeDirectory($basePath, 0755, true);
