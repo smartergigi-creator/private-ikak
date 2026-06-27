@@ -81,6 +81,7 @@ public function store(Request $request)
             'related_subcategory_id' => ['nullable', Rule::exists('categories', 'id')->where('is_deleted', 0)],
             'pdfs' => 'required|array|min:1',
             'pdfs.*' => 'required|file|max:204800',
+            'access_role' => 'required|in:public,member,branch_chief',
         ]);
 
         $files = $request->file('pdfs');

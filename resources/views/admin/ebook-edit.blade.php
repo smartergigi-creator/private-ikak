@@ -131,24 +131,24 @@
                     <label class="form-label fw-semibold">Who can access this ebook?</label>
 
                     <div class="form-check">
-                        <input class="form-check-input" type="checkbox" name="roles[]" value="public"
-                            {{ in_array('public', old('roles', $selectedRoles ?? [])) ? 'checked' : '' }}>
+                        <input class="form-check-input" type="radio" name="access_role" value="public"
+                            {{ old('access_role', $ebook->access_role) == 'public' ? 'checked' : '' }}>
                         <label class="form-check-label">
                             Public
                         </label>
                     </div>
 
                     <div class="form-check">
-                        <input class="form-check-input" type="checkbox" name="roles[]" value="members"
-                            {{ in_array('members', old('roles', $selectedRoles ?? [])) ? 'checked' : '' }}>
+                        <input class="form-check-input" type="radio" name="access_role" value="member"
+                            {{ old('access_role', $ebook->access_role) == 'member' ? 'checked' : '' }}>
                         <label class="form-check-label">
                             Members
                         </label>
                     </div>
 
                     <div class="form-check">
-                        <input class="form-check-input" type="checkbox" name="roles[]" value="branchchief"
-                            {{ in_array('branchchief', old('roles', $selectedRoles ?? [])) ? 'checked' : '' }}>
+                        <input class="form-check-input" type="radio" name="access_role" value="branch_chief"
+                            {{ old('access_role', $ebook->access_role) == 'branch_chief' ? 'checked' : '' }}>
                         <label class="form-check-label">
                             Branch Chief
                         </label>

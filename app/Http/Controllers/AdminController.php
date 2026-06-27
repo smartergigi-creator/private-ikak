@@ -13,7 +13,7 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\File;
-use App\Models\EbookPermission;
+
 
 class AdminController extends Controller
 {
@@ -341,8 +341,7 @@ public function editEbook($id)
     $ebook = Ebook::with([
         'category',
         'subcategory',
-        'relatedSubcategory',
-        'permissions'
+        'relatedSubcategory'
     ])->findOrFail($id);
 
     $categories = Category::whereNull('parent_id')
@@ -353,18 +352,12 @@ public function editEbook($id)
         ->orderBy('name')
         ->get(['id', 'name', 'parent_id']);
 
-    // Selected roles for checkboxes
-    $selectedRoles = $ebook->permissions
-        ->pluck('role')
-        ->toArray();
-
     return view(
         'admin.ebook-edit',
         compact(
             'ebook',
             'categories',
-            'subcategories',
-            'selectedRoles'
+            'subcategories'
         )
     );
 }
@@ -385,8 +378,7 @@ public function updateEbook(Request $request, $id)
         'category_id' => ['nullable', Rule::exists('categories', 'id')->where('is_deleted', 0)],
         'subcategory_id' => ['nullable', Rule::exists('categories', 'id')->where('is_deleted', 0)],
         'related_subcategory_id' => ['nullable', Rule::exists('categories', 'id')->where('is_deleted', 0)],
-        'roles' => 'nullable|array',
-        'roles.*' => 'in:public,members,branchchief',
+        'access_role' => 'required|in:public,member,branch_chief',
     ]);
 
     $categoryId = isset($validated['category_id']) ? (int) $validated['category_id'] : null;
@@ -512,43 +504,8 @@ public function updateEbook(Request $request, $id)
 $ebook->subcategory_id = $subcategoryId;
 $ebook->related_subcategory_id = $relatedSubcategoryId;
 
-/*
-|--------------------------------------------------------------------------
-| Update Main Access Role
-|--------------------------------------------------------------------------
-*/
-$selectedRoles = $request->roles ?? [];
-
-$mainRole = 'public';
-
-if (in_array('branchchief', $selectedRoles)) {
-    $mainRole = 'bc';
-} elseif (in_array('members', $selectedRoles)) {
-    $mainRole = 'member';
-} elseif (in_array('public', $selectedRoles)) {
-    $mainRole = 'public';
-}
-
-$ebook->access_role = $mainRole;
-
+$ebook->access_role = $request->access_role;
 $ebook->save();
-
-/*
-|--------------------------------------------------------------------------
-| Update Permissions
-|--------------------------------------------------------------------------
-*/
-$ebook->permissions()->delete();
-
-foreach ($selectedRoles as $role) {
-
-    EbookPermission::create([
-        'ebook_id' => $ebook->id,
-        'role' => $role,
-    ]);
-
-}
-
     return redirect()
         ->route('admin.ebooks')
         ->with('success', 'Ebook updated successfully.');

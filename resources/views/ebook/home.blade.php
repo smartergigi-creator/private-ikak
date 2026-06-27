@@ -519,10 +519,10 @@
         }
 
         /* .pagination .page-item.disabled .page-link {
-                                                background: #f8fafc !important;
-                                                color: #b0b7c3 !important;
-                                                border-color: #e2e8f0 !important;
-                                            } */
+                                                                                        background: #f8fafc !important;
+                                                                                        color: #b0b7c3 !important;
+                                                                                        border-color: #e2e8f0 !important;
+                                                                                    } */
 
         @media (max-width: 768px) {
             .header-left h1 {
@@ -573,6 +573,45 @@
             .sub-filter-container {
                 padding: 15px;
             }
+        }
+
+        .access-role-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .access-role-card {
+            position: relative;
+            cursor: pointer;
+        }
+
+        .access-role-card input {
+            display: none;
+        }
+
+        .access-role-card span {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 20px;
+            border: 1px solid #d9d9d9;
+            border-radius: 12px;
+            background: #fff;
+            font-weight: 600;
+            color: #555;
+            transition: .3s;
+        }
+
+        .access-role-card input:checked+span {
+            background: #0dcaf0;
+            color: #fff;
+            border-color: #0dcaf0;
+            box-shadow: 0 8px 20px rgba(13, 202, 240, .25);
+        }
+
+        .access-role-card:hover span {
+            transform: translateY(-2px);
         }
     </style>
 
@@ -837,15 +876,7 @@
                                     value="{{ old('achievement_date', request('achievement_date')) }}">
                             </div>
 
-                            <div class="mb-3" id="uploadCategoryField">
-                                <label class="form-label fw-semibold">Category</label>
-                                <select name="category_id" id="uploadCategorySelect" class="form-select" required>
-                                    <option value="">Select Category</option>
-                                    @foreach ($categories as $category)
-                                        <option value="{{ $category->id }}">{{ $category->name }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
+                            <input type="hidden" name="category_id" value="4">
 
                             <div class="mb-3" id="uploadSubCategoryField" style="display:none;">
                                 <label class="form-label fw-semibold">Sub Category</label>
@@ -867,6 +898,32 @@
                                 <span class="text">Uploading ebook... Please wait</span>
                             </div>
                         </div>
+
+                        <div class="mb-3 ms-4">
+                            <label class="form-label fw-semibold d-block mb-2">
+                                Access Role
+                            </label>
+
+                            <div class="access-role-group">
+
+                                <label class="access-role-card">
+                                    <input type="radio" name="access_role" value="public" required>
+                                    <span>🌐 Public</span>
+                                </label>
+
+                                <label class="access-role-card">
+                                    <input type="radio" name="access_role" value="member">
+                                    <span>👥 Members</span>
+                                </label>
+
+                                <label class="access-role-card">
+                                    <input type="radio" name="access_role" value="branch_chief">
+                                    <span>🥋 Branch Chief</span>
+                                </label>
+
+                            </div>
+                        </div>
+
                         <div class="modal-footer">
                             <button type="button" class="btn btn-outline-secondary"
                                 data-bs-dismiss="modal">Cancel</button>
@@ -937,67 +994,165 @@
         });
 
         document.addEventListener('DOMContentLoaded', function() {
-            const filterForm = document.getElementById('ebookFilterForm');
-            if (!filterForm) return;
+            // ... (keep the PDF cover rendering, filter form, video handling code above as is) ...
 
-            const searchInput = filterForm.querySelector('input[name="search"]');
-            const categoryFilter = filterForm.querySelector('#categorySelect');
-            const yearFilter = filterForm.querySelector('#yearSelect');
-            const subCategoryFilter = filterForm.querySelector('#subCategorySelect');
-            const relatedSubCategoryFilter = filterForm.querySelector('#relatedSubCategorySelect');
-            const ebooksSection = document.getElementById('ebooksSection');
-            let searchDebounceTimer = null;
-            const filterResultFlag = 'ebook_home_filter_to_results';
-            const queryParams = new URLSearchParams(window.location.search);
-            const hasFilterQuery = ['search', 'category', 'subcategory', 'related_subcategory', 'year', 'page']
-                .some((key) => {
-                    const value = queryParams.get(key);
-                    return value !== null && value !== '';
-                });
+            // -------------------- UPLOAD MODAL --------------------
+            const uploadForm = document.getElementById('uploadForm');
+            const openModalBtn = document.getElementById('openUploadMetaModal');
+            const uploadModalEl = document.getElementById('uploadMetaModal');
+            const pdfInput = document.getElementById('pdfInput');
+            const folderInput = document.getElementById('folderInput');
 
-            if (ebooksSection && (sessionStorage.getItem(filterResultFlag) === '1' || hasFilterQuery)) {
-                window.requestAnimationFrame(() => {
-                    ebooksSection.scrollIntoView({
-                        block: 'start'
-                    });
-                });
-                sessionStorage.removeItem(filterResultFlag);
-            }
+            // ✅ Removed: const categorySelect = document.getElementById('uploadCategorySelect');
+            const subCategorySelect = document.getElementById('uploadSubCategorySelect');
+            const relatedSubCategorySelect = document.getElementById('uploadRelatedSubCategorySelect');
 
-            const setFilterResultFlag = () => {
-                sessionStorage.setItem(filterResultFlag, '1');
+            const subCategoryField = document.getElementById('uploadSubCategoryField');
+            const relatedSubCategoryField = document.getElementById('uploadRelatedSubCategoryField');
+
+            // ✅ Updated condition – no longer checks categorySelect
+            if (!uploadForm || !openModalBtn || !uploadModalEl || !subCategorySelect) return;
+
+            const uploadModal = new bootstrap.Modal(uploadModalEl);
+
+            const toggleField = (field, show) => {
+                if (!field) return;
+                field.style.display = show ? '' : 'none';
             };
 
-            const submitFilterForm = () => {
-                if (searchDebounceTimer) {
-                    clearTimeout(searchDebounceTimer);
-                    searchDebounceTimer = null;
-                }
-                setFilterResultFlag();
-                filterForm.submit();
+            const resetSubCategories = () => {
+                subCategorySelect.innerHTML = '<option value="">Select Subcategory</option>';
             };
 
-            if (searchInput) {
-                searchInput.addEventListener('input', function() {
-                    if (searchDebounceTimer) {
-                        clearTimeout(searchDebounceTimer);
-                    }
-                    searchDebounceTimer = setTimeout(() => {
-                        setFilterResultFlag();
-                        filterForm.submit();
-                    }, 500);
-                });
-            }
+            const resetRelatedSubCategories = () => {
+                if (!relatedSubCategorySelect) return;
+                relatedSubCategorySelect.innerHTML = '<option value="">Select Related Subcategory</option>';
+            };
 
-            filterForm.addEventListener('submit', function() {
-                setFilterResultFlag();
+            const loadChildren = (parentId, targetSelect, placeholder) => {
+                targetSelect.innerHTML = `<option value="">${placeholder}</option>`;
+                if (!parentId) return Promise.resolve([]);
+
+                return fetch('/get-subcategories/' + encodeURIComponent(parentId), {
+                        method: 'GET',
+                        credentials: 'same-origin',
+                        headers: {
+                            Accept: 'application/json'
+                        }
+                    })
+                    .then((res) => res.json())
+                    .then((items) => {
+                        if (!Array.isArray(items)) return [];
+                        items.forEach((item) => {
+                            const option = document.createElement('option');
+                            option.value = item.id;
+                            option.textContent = item.name;
+                            targetSelect.appendChild(option);
+                        });
+                        return items;
+                    })
+                    .catch(() => []);
+            };
+
+            // ✅ Subcategory loading now happens when the modal is opened
+            openModalBtn.addEventListener('click', function() {
+                uploadModal.show();
+
+                const KARATE_CATEGORY_ID = 4;
+
+                // Reset both subcategory selects
+                resetSubCategories();
+                resetRelatedSubCategories();
+
+                // Load subcategories for the fixed category (Karate)
+                loadChildren(
+                    KARATE_CATEGORY_ID,
+                    subCategorySelect,
+                    'Select Sub Category'
+                ).then((items) => {
+                    toggleField(subCategoryField, items.length > 0);
+                    subCategorySelect.required = items.length > 0;
+                });
+
+                // Initially hide related subcategory field
+                toggleField(relatedSubCategoryField, false);
+                relatedSubCategorySelect.required = false;
             });
 
-            [categoryFilter, yearFilter, subCategoryFilter, relatedSubCategoryFilter]
-            .filter(Boolean)
-                .forEach((element) => {
-                    element.addEventListener('change', submitFilterForm);
+            // Subcategory change → load related subcategories
+            subCategorySelect.addEventListener('change', function() {
+                const subCategoryId = this.value;
+                if (!relatedSubCategorySelect) return;
+
+                resetRelatedSubCategories();
+                relatedSubCategorySelect.required = false;
+
+                if (!subCategoryId) {
+                    toggleField(relatedSubCategoryField, false);
+                    return;
+                }
+
+                loadChildren(subCategoryId, relatedSubCategorySelect, 'Select Related Subcategory').then((
+                    items) => {
+                    const hasItems = items.length > 0;
+                    toggleField(relatedSubCategoryField, hasItems);
+                    relatedSubCategorySelect.required = hasItems;
                 });
+            });
+
+            // Upload form submission
+            uploadForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+
+                const formData = new FormData(uploadForm);
+                const selectedFiles = [];
+
+                if (pdfInput && pdfInput.files?.length) {
+                    selectedFiles.push(...Array.from(pdfInput.files));
+                }
+                if (folderInput && folderInput.files?.length) {
+                    selectedFiles.push(...Array.from(folderInput.files));
+                }
+
+                if (!selectedFiles.length) {
+                    alert('Please select at least one file.');
+                    return;
+                }
+
+                formData.delete('pdfs[]');
+                selectedFiles.forEach((file) => {
+                    formData.append('pdfs[]', file);
+                });
+
+                const uploadStatus = document.getElementById('uploadStatus');
+                if (uploadStatus) uploadStatus.style.display = 'flex';
+
+                try {
+                    const res = await fetch('/ebooks/upload', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')
+                                ?.getAttribute('content') || '',
+                            Accept: 'application/json',
+                        },
+                        body: formData,
+                    });
+
+                    const data = await res.json().catch(() => ({}));
+
+                    if (!res.ok || !data.status) {
+                        throw new Error(data.message || 'Upload failed. Check file size or format.');
+                    }
+
+                    alert(data.message || 'Upload successful');
+                    window.location.reload();
+                } catch (err) {
+                    alert(err.message || 'Upload failed');
+                } finally {
+                    if (uploadStatus) uploadStatus.style.display = 'none';
+                }
+            });
         });
 
         document.addEventListener('DOMContentLoaded', function() {
@@ -1106,27 +1261,17 @@
                 uploadModal.show();
             });
 
-            categorySelect.addEventListener('change', function() {
-                const categoryId = this.value;
+            const KARATE_CATEGORY_ID = 4;
 
-                resetSubCategories();
-                resetRelatedSubCategories();
-                toggleField(relatedSubCategoryField, false);
-                subCategorySelect.required = false;
-                if (relatedSubCategorySelect) {
-                    relatedSubCategorySelect.required = false;
-                }
+            loadChildren(
+                KARATE_CATEGORY_ID,
+                subCategorySelect,
+                'Select Sub Category'
+            ).then((items) => {
 
-                if (!categoryId) {
-                    toggleField(subCategoryField, false);
-                    return;
-                }
+                toggleField(subCategoryField, items.length > 0);
 
-                loadChildren(categoryId, subCategorySelect, 'Select Subcategory').then((items) => {
-                    const hasItems = items.length > 0;
-                    toggleField(subCategoryField, hasItems);
-                    subCategorySelect.required = hasItems;
-                });
+                subCategorySelect.required = items.length > 0;
             });
 
             subCategorySelect.addEventListener('change', function() {

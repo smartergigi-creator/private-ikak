@@ -9,81 +9,117 @@
 
     <link rel="stylesheet" href="{{ asset('css/auth.css') }}">
 
+    {{-- Inline styles to make error messages red (can also be moved to auth.css) --}}
+    <style>
+        .error-message {
+            color: #d32f2f;
+            background: #ffebee;
+            padding: 10px 14px;
+            border-radius: 6px;
+            border-left: 4px solid #d32f2f;
+            margin-bottom: 16px;
+            font-weight: 500;
+        }
+
+        .field-error {
+            color: #d32f2f;
+            font-size: 0.85rem;
+            display: block;
+            margin-top: 4px;
+        }
+
+        /* Optional: style the remember toggle to align nicely */
+        .remember-group {
+            margin: 12px 0 18px;
+        }
+
+        .remember-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            color: #333;
+        }
+
+        .remember-toggle input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: #1a73e8;
+        }
+    </style>
+
 </head>
 
 <body>
 
-    <main class="login-page">
-        <section class="login-shell">
-            <div class="brand-panel">
-                <div class="brand-mark">
-                    <span class="brand-logo" aria-hidden="true">
-                        <img src="{{ asset('images/logo.webp') }}" alt="eBook Logo">
-                    </span>
-                    <span>IKAK</span>
-                </div>
-                <h1>Welcome to eBook Portal</h1>
-                <p class="tagline">Smart Digital Library Management</p>
-                <p class="subline">Manage | Upload | Share | Control</p>
-                <div class="book-stack" aria-hidden="true"></div>
-            </div>
+    <div class="main-container">
 
-            <div class="form-panel">
-                <div class="form-card">
-                    <h2>
-                        <span class="login-title-icon" aria-hidden="true">
-                            <img src="{{ asset('images/logo.webp') }}" alt="eBook Logo">
-                        </span>
-                        <span>Login</span>
-                    </h2>
+        <!-- LEFT SIDE -->
+        <div class="left-container">
+            <img src="{{ asset('images/ebook.jpg') }}" alt="ebook">
+        </div>
 
-                    @if (session('error'))
-                        <p class="error">{{ session('error') }}</p>
-                    @endif
+        <!-- RIGHT SIDE -->
+        <div class="right-container">
 
-                    <form method="POST" action="{{ route('karate.login') }}">
-                        @csrf
-                        <div class="form-field">
-                            <input id="username" type="text" name="username" placeholder=" "
-                                value="{{ old('username') }}" required>
-                            <label for="username" class="floating-label">
-                                <span class="label-icon" aria-hidden="true">
-                                    <svg viewBox="0 0 24 24" role="img">
-                                        <path
-                                            d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-3.31 0-6 1.79-6 4v1h12v-1c0-2.21-2.69-4-6-4z" />
-                                    </svg>
-                                </span>
-                                <span>User ID</span>
-                            </label>
-                            <span class="field-line" aria-hidden="true"></span>
-                        </div>
+            <div class="login-box">
 
-                        <div class="form-field">
-                            <input id="password" type="password" name="password" placeholder=" " required>
-                            <label for="password" class="floating-label">
-                                <span class="label-icon" aria-hidden="true">
-                                    <svg viewBox="0 0 24 24" role="img">
-                                        <path
-                                            d="M17 8h-1V6a4 4 0 1 0-8 0v2H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zm-7-2a2 2 0 0 1 4 0v2h-4z" />
-                                    </svg>
-                                </span>
-                                <span>Password</span>
-                            </label>
-                            <span class="field-line" aria-hidden="true"></span>
-                        </div>
+                <h2>Log In </h2>
 
+                <p>
+                    Enter your credentials to access your account
+                </p>
+
+                {{-- Display error message if any (now red) --}}
+                @if (session('error'))
+                    <div class="error-message">
+                        {{ session('error') }}
+                    </div>
+                @endif
+
+                {{-- Form with proper Laravel authentication --}}
+                <form method="POST" action="{{ route('karate.login') }}">
+                    @csrf
+
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <input id="username" type="text" name="username" placeholder="Enter your username"
+                            value="{{ old('username') }}" required autofocus>
+                        @error('username')
+                            <span class="field-error">{{ $message }}</span>
+                        @enderror
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input id="password" type="password" name="password" placeholder="Enter your password"
+                            required>
+                        @error('password')
+                            <span class="field-error">{{ $message }}</span>
+                        @enderror
+                    </div>
+
+                    {{-- Remember Me --}}
+                    <div class="remember-group">
                         <label class="remember-toggle" for="remember">
                             <input id="remember" type="checkbox" name="remember" value="1"
                                 {{ old('remember') ? 'checked' : '' }}>
                             <span>Remember me</span>
                         </label>
+                    </div>
 
-                        <button type="submit">Login</button>
-                    </form>
-                </div>
+                    <button type="submit" class="login-btn">
+                        Log In
+                    </button>
+
+                </form>
+
             </div>
-        </section>
-    </main>
+
+        </div>
+
+    </div>
 
 </body>
 

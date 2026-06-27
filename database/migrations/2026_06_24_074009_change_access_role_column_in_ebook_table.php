@@ -11,10 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('ebook', function (Blueprint $table) {
-        if (!Schema::hasColumn('ebook', 'uploaded_by')) {
-            $table->string('uploaded_by')->nullable()->after('user_id');
-        }
+       Schema::table('ebook', function (Blueprint $table) {
+        $table->string('access_role', 255)->nullable()->change();
     });
     }
 
@@ -24,9 +22,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('ebook', function (Blueprint $table) {
-        if (Schema::hasColumn('ebook', 'uploaded_by')) {
-            $table->dropColumn('uploaded_by');
-        }
+        $table->enum('access_role', ['public', 'member', 'bc', 'operator'])->nullable()->change();
     });
     }
 };

@@ -39,6 +39,8 @@ class KarateAuthController extends Controller
 
             $apiUser = $result['data']['user'];
 
+
+
             session([
                 'logged_in'          => true,
                 'ikak_token'         => $result['data']['token'] ?? null,
@@ -46,8 +48,12 @@ class KarateAuthController extends Controller
                 'ikak_user'          => $apiUser,
                 'user_name'          => $apiUser['name'] ?? '',
                 'user_email'         => $apiUser['email'] ?? trim($request->username),
-                'user_role'          => strtolower($apiUser['role'] ?? 'user'),
-                'ikak_roles'         => $apiUser['roles'] ?? [],
+
+                // Store role
+                'user_role'          => $apiUser['role'] ?? '',
+
+                // Store as array for middleware
+                'ikak_roles'         => [$apiUser['role'] ?? ''],
             ]);
 
             return redirect('/home');

@@ -9,20 +9,23 @@ use Symfony\Component\HttpFoundation\Response;
 class AdminMiddleware
 {
     public function handle(Request $request, Closure $next): Response
-    {
-        if (!session()->has('logged_in')) {
-            return redirect('/login');
-        }
+{
+    if (!session()->has('logged_in')) {
+        return redirect('/login');
+    }
 
-        $roles = session('ikak_roles', []);
-
-        if (
-            !in_array('Operator', $roles) &&
-            !in_array('Branch Chief', $roles)
-        ) {
+    $role = session('user_role');
+// Only Operator can access dashboard
+        if ($role !== 'Operator') {
             abort(403, 'Access Denied');
         }
+    // if (!in_array($role, [
+    //     'Operator',
+    //     'Branch Chief',
+    // ])) {
+    //     abort(403, 'Access Denied');
+    // }
 
-        return $next($request);
-    }
+    return $next($request);
+}
 }

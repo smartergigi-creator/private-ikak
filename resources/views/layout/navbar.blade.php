@@ -208,8 +208,12 @@
                                 <span class="navbar-user-badge">{{ $navbarUserLabel }}</span>
                             </li>
                         @endif
-                        @if (in_array($userRole, ['Branch Chief', 'Operator']))
-                            <li><a href="{{ route('admin.dashboard') }}" class="dropdown-item">Dashboard</a></li>
+                        @if ($userRole === 'Operator')
+                            <li>
+                                <a href="{{ route('admin.dashboard') }}" class="dropdown-item">
+                                    Dashboard
+                                </a>
+                            </li>
                         @endif
                         <li><a href="{{ url('/home') }}" class="dropdown-item">Home</a></li>
                         <li>
